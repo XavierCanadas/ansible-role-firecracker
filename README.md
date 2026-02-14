@@ -89,7 +89,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Firecracker**: [GitHub Repository](https://github.com/firecracker-microvm/firecracker/). Followed the [Getting Started.ms](https://github.com/firecracker-microvm/firecracker/blob/main/docs/getting-started.md) to make the tasks.
 
-- **Project Context**: Developed as part of a Computer Science final degree project (TFG) at Universitat Pompeu Fabra
+- **Project Context**: Developed as part of my Computer Science final degree project (TFG) at Universitat Pompeu Fabra
 
 ## Author Information
 
