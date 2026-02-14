@@ -1,0 +1,15 @@
+[Unit]
+Description=Firecracker microVM
+After=network.target
+
+[Service]
+Type=simple
+User={{ firecracker_service_user }}
+ExecStartPre=/bin/rm -f {{ firecracker_socket_path }}
+ExecStart={{ firecracker_binary_path }} --api-sock {{ firecracker_socket_path }}{% if firecracker_enable_pci %} --enable-pci{% endif %}
+
+Restart={{ firecracker_restart_policy }}
+RestartSec={{ firecracker_restart_sec }}
+
+[Install]
+WantedBy=multi-user.target

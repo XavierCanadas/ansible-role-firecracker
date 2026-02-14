@@ -1,0 +1,107 @@
+---
+# Ansible-native approach to install Firecracker (alternative to install-firecracker.sh script)
+
+- name: Check if Firecracker is already installed
+  ansible.builtin.stat:
+    path: "{{ firecracker_binary_path }}"
+  register: firecracker_binary
+
+- name: Get latest Firecracker release version
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/firecracker-microvm/firecracker/releases/latest
+    return_content: true
+  register: firecracker_release
+  when: not firecracker_binary.stat.exists
+
+- name: Set Firecracker version and architecture
+  ansible.builtin.set_fact:
+    firecracker_version: "{{ firecracker_release.json.tag_name }}"
+    firecracker_arch: "{{ ansible_facts['architecture'] }}"
+  when: not firecracker_binary.stat.exists
+
+- name: Check if this version is already installed
+  ansible.builtin.stat:
+    path: "/opt/firecracker/{{ firecracker_version }}/firecracker"
+  register: firecracker_version_exists
+  when: not firecracker_binary.stat.exists
+
+- name: Create Firecracker base directory
+  ansible.builtin.file:
+    path: /opt/firecracker
+    state: directory
+    mode: '0755'
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+
+- name: Create temporary download directory
+  ansible.builtin.file:
+    path: /tmp/firecracker
+    state: directory
+    mode: '0755'
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+
+- name: Download Firecracker release
+  ansible.builtin.get_url:
+    url: "https://github.com/firecracker-microvm/firecracker/releases/download/{{ firecracker_version }}/firecracker-{{ firecracker_version }}-{{ firecracker_arch }}.tgz"
+    dest: /tmp/firecracker/firecracker.tgz
+    mode: '0644'
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+
+- name: Download Firecracker checksum file
+  ansible.builtin.get_url:
+    url: "https://github.com/firecracker-microvm/firecracker/releases/download/{{ firecracker_version }}/firecracker-{{ firecracker_version }}-{{ firecracker_arch }}.tgz.sha256.txt"
+    dest: /tmp/firecracker/firecracker.tgz.sha256.txt
+    mode: '0644'
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+
+- name: Verify checksum
+  ansible.builtin.shell: |
+    cd /tmp/firecracker
+    sha256sum -c firecracker.tgz.sha256.txt
+  args:
+    executable: /bin/bash
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+  changed_when: false
+
+- name: Extract Firecracker archive
+  ansible.builtin.unarchive:
+    src: /tmp/firecracker/firecracker.tgz
+    dest: /tmp/firecracker/
+    remote_src: true
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+
+- name: Create version directory
+  ansible.builtin.file:
+    path: "/opt/firecracker/{{ firecracker_version }}"
+    state: directory
+    mode: '0755'
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+
+- name: Install Firecracker binary to versioned directory
+  ansible.builtin.copy:
+    src: "/tmp/firecracker/release-{{ firecracker_version }}-{{ firecracker_arch }}/firecracker-{{ firecracker_version }}-{{ firecracker_arch }}"
+    dest: "/opt/firecracker/{{ firecracker_version }}/firecracker"
+    mode: '0755'
+    remote_src: true
+  when: not firecracker_binary.stat.exists and not firecracker_version_exists.stat.exists
+
+- name: Update 'current' symlink to latest version
+  ansible.builtin.file:
+    src: "/opt/firecracker/{{ firecracker_version }}"
+    dest: /opt/firecracker/current
+    state: link
+    force: true
+  when: not firecracker_binary.stat.exists
+
+- name: Create symlink in {{ firecracker_binary_path }}
+  ansible.builtin.file:
+    src: /opt/firecracker/current/firecracker
+    dest: "{{ firecracker_binary_path }}"
+    state: link
+    force: true
+  when: not firecracker_binary.stat.exists
+
+- name: Clean up temporary files
+  ansible.builtin.file:
+    path: /tmp/firecracker
+    state: absent
+  when: not firecracker_binary.stat.exists

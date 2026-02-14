@@ -1,0 +1,150 @@
+---
+
+- name: Ensure required packages are installed
+  package:
+    name:
+      - squashfs-tools
+      - e2fsprogs
+    state: present
+  become: true
+
+
+- name: Set architecture fact
+  ansible.builtin.set_fact:
+    rootfs_arch: "{{ ansible_facts['architecture'] }}"
+
+# Get latest Firecracker release (to derive CI_VERSION)
+- name: Get latest Firecracker release metadata
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/firecracker-microvm/firecracker/releases/latest
+    return_content: true
+  register: firecracker_release
+
+- name: Extract CI version (remove patch component)
+  ansible.builtin.set_fact:
+    latest_version: "{{ firecracker_release.json.tag_name }}"
+    ci_version: "{{ firecracker_release.json.tag_name.rsplit('.', 1)[0] }}"
+
+# Query S3 index for ubuntu squashfs images
+- name: Query S3 for Ubuntu rootfs images
+  ansible.builtin.uri:
+    url: "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/{{ ci_version }}/{{ rootfs_arch }}/ubuntu-&list-type=2"
+    return_content: true
+  register: s3_listing
+
+- name: Build rootfs regex pattern
+  ansible.builtin.set_fact:
+    rootfs_pattern: "firecracker-ci/{{ ci_version }}/{{ rootfs_arch }}/ubuntu-[0-9]+\\.[0-9]+\\.squashfs"
+
+- name: Extract Ubuntu squashfs keys
+  ansible.builtin.set_fact:
+    ubuntu_keys: "{{ s3_listing.content | regex_findall(rootfs_pattern) }}"
+
+- name: Fail if no Ubuntu rootfs found
+  ansible.builtin.fail:
+    msg: "No Ubuntu rootfs found for {{ ci_version }}/{{ rootfs_arch }}"
+  when: ubuntu_keys | length == 0
+
+- name: Debug Ubuntu keys
+  ansible.builtin.debug:
+    msg: "Found keys: {{ ubuntu_keys }}"
+
+- name: Extract Ubuntu versions using regex_replace
+  set_fact:
+    ubuntu_versions: >-
+      {{
+        ubuntu_keys
+        | map('regex_replace', '^.*/ubuntu-([0-9]+\.[0-9]+)\.squashfs$', '\1')
+        | list
+      }}
+
+- name: Debug extracted versions
+  ansible.builtin.debug:
+    msg: "Extracted versions: {{ ubuntu_versions }}"
+
+- name: Determine latest Ubuntu version
+  set_fact:
+    ubuntu_version: "{{ ubuntu_versions | community.general.version_sort | last }}"
+
+- name: Debug selected version
+  ansible.builtin.debug:
+    msg: "Selected version: {{ ubuntu_version }}"
+
+- name: Reconstruct latest key
+  set_fact:
+    latest_ubuntu_key: >-
+      firecracker-ci/{{ ci_version }}/{{ rootfs_arch }}/ubuntu-{{ ubuntu_version }}.squashfs
+
+
+# Prepare directories
+- name: Create rootfs storage directory
+  ansible.builtin.file:
+    path: "{{ firecracker_rootfs_dir }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Set squashfs filename
+  ansible.builtin.set_fact:
+    squashfs_filename: "ubuntu-{{ ubuntu_version }}.squashfs"
+
+- name: Set ext4 filename
+  ansible.builtin.set_fact:
+    ext4_filename: "ubuntu-{{ ubuntu_version }}.ext4"
+
+# Download squashfs if missing
+- name: Check if ext4 rootfs already exists
+  ansible.builtin.stat:
+    path: "{{ firecracker_rootfs_dir }}/{{ ext4_filename }}"
+  register: rootfs_exists
+
+- name: Download Ubuntu squashfs
+  ansible.builtin.get_url:
+    url: "https://s3.amazonaws.com/spec.ccfc.min/{{ latest_ubuntu_key }}"
+    dest: "{{ firecracker_rootfs_dir }}/{{ squashfs_filename }}"
+    mode: '0644'
+  when: not rootfs_exists.stat.exists
+  become: true
+
+# Extract squashfs
+- name: Extract squashfs root
+  ansible.builtin.command:
+    cmd: unsquashfs -f -d squashfs-root {{ squashfs_filename }}
+    chdir: "{{ firecracker_rootfs_dir }}"
+  when: not rootfs_exists.stat.exists
+  become: true
+
+# Create ext4 filesystem
+- name: Create empty ext4 image
+  ansible.builtin.command:
+    cmd: truncate -s {{ firecracker_rootfs_size }} {{ ext4_filename }}
+    chdir: "{{ firecracker_rootfs_dir }}"
+  when: not rootfs_exists.stat.exists
+  become: true
+
+- name: Populate ext4 filesystem
+  ansible.builtin.command:
+    cmd: mkfs.ext4 -d squashfs-root -F {{ ext4_filename }}
+    chdir: "{{ firecracker_rootfs_dir }}"
+  when: not rootfs_exists.stat.exists
+  become: true
+
+- name: Verify ext4 filesystem integrity
+  ansible.builtin.command:
+    cmd: e2fsck -fn {{ ext4_filename }}
+    chdir: "{{ firecracker_rootfs_dir }}"
+  register: fsck_result
+  changed_when: false
+  failed_when: fsck_result.rc != 0
+  become: true
+
+- name: Display rootfs info
+  ansible.builtin.debug:
+    msg: "Rootfs ready: {{ firecracker_rootfs_dir }}/{{ ext4_filename }}"
+
+- name: Clean extracted squashfs directory
+  file:
+    path: "{{ firecracker_rootfs_dir }}/squashfs-root"
+    state: absent
+  when: not rootfs_exists.stat.exists
+  become: true

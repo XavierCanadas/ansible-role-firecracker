@@ -1,0 +1,37 @@
+---
+
+- name: Check if Firecracker latest is already installed
+  ansible.builtin.include_tasks: 
+    file: check-firecracker-latest-installed.yaml
+
+- name: Install Firecracker binary
+  ansible.builtin.include_tasks: 
+    file: install-firecracker.yaml
+  when: not (firecracker_version_exists.stat.exists | default(false)) # defined in the check-firecracker-latest-installed task
+
+- name: Install Firecracker default kernel
+  ansible.builtin.include_tasks:
+    file: install-default-kernel.yaml
+  when: firecracker_use_default_kernel | default(false)
+
+- name: Install Firecracker default rootfs
+  ansible.builtin.include_tasks:
+    file: install-default-rootfs.yaml
+  when: firecracker_use_default_rootfs | default(false)
+
+- name: Install Firecracker systemd service
+  ansible.builtin.template:
+    src: ../templates/firecracker.service.j2
+    dest: /etc/systemd/system/firecracker.service
+    mode: '0644'
+  when: firecracker_install_service | default(true)
+  notify: Restart Firecracker
+
+- name: Enable and start Firecracker service
+  ansible.builtin.systemd:
+    name: firecracker
+    enabled: "{{ firecracker_service_enabled | default(true) }}"
+    state: "{{ firecracker_service_state | default('started') }}"
+    daemon_reload: true
+  when: firecracker_install_service | default(true)
+  

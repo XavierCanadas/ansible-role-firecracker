@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  author: Xavier Canadas
+  description: Install and configure Firecracker microVM hypervisor
+  license: MIT
+  min_ansible_version: "2.9"
+  
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+
+  galaxy_tags:
+    - firecracker
+    - microvm
+    - virtualization
+    - container
+    - security
+
+dependencies: []

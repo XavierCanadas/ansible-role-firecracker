@@ -1,0 +1,17 @@
+---
+
+- name: Get latest Firecracker release metadata
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/firecracker-microvm/firecracker/releases/latest
+    return_content: true
+  register: firecracker_release
+
+- name: Set Firecracker version and architecture
+  ansible.builtin.set_fact:
+    firecracker_version: "{{ firecracker_release.json.tag_name }}"
+    firecracker_arch: "{{ ansible_facts['architecture'] }}"
+
+- name: Check if this version is already installed
+  ansible.builtin.stat:
+    path: "/opt/firecracker/{{ firecracker_version }}/firecracker"
+  register: firecracker_version_exists

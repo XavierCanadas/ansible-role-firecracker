@@ -1,0 +1,63 @@
+---
+
+- name: Create Firecracker base directory
+  ansible.builtin.file:
+    path: /opt/firecracker
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Create temporary download directory
+  ansible.builtin.file:
+    path: /tmp/firecracker
+    state: directory
+    mode: '0755'
+
+- name: Download Firecracker release
+  ansible.builtin.get_url:
+    url: "https://github.com/firecracker-microvm/firecracker/releases/download/{{ firecracker_version }}/firecracker-{{ firecracker_version }}-{{ firecracker_arch }}.tgz"
+    dest: /tmp/firecracker/firecracker.tgz
+    mode: '0644'
+    checksum: "sha256:https://github.com/firecracker-microvm/firecracker/releases/download/{{ firecracker_version }}/firecracker-{{ firecracker_version }}-{{ firecracker_arch }}.tgz.sha256.txt"
+
+- name: Extract Firecracker archive
+  ansible.builtin.unarchive:
+    src: /tmp/firecracker/firecracker.tgz
+    dest: /tmp/firecracker/
+    remote_src: true
+
+- name: Create version directory
+  ansible.builtin.file:
+    path: "/opt/firecracker/{{ firecracker_version }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Install Firecracker binary to versioned directory
+  ansible.builtin.copy:
+    src: "/tmp/firecracker/release-{{ firecracker_version }}-{{ firecracker_arch }}/firecracker-{{ firecracker_version }}-{{ firecracker_arch }}"
+    dest: "/opt/firecracker/{{ firecracker_version }}/firecracker"
+    mode: '0755'
+    remote_src: true
+  become: true
+
+- name: Update 'current' symlink
+  ansible.builtin.file:
+    src: "/opt/firecracker/{{ firecracker_version }}"
+    dest: /opt/firecracker/current
+    state: link
+    force: true
+  become: true
+
+- name: Create symlink in {{ firecracker_binary_path }}
+  ansible.builtin.file:
+    src: /opt/firecracker/current/firecracker
+    dest: "{{ firecracker_binary_path }}"
+    state: link
+    force: true
+  become: true
+
+- name: Clean up temporary files
+  ansible.builtin.file:
+    path: /tmp/firecracker
+    state: absent

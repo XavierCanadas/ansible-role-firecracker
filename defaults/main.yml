@@ -1,0 +1,29 @@
+---
+# Firecracker binary installation path
+
+firecracker_binary_path: /usr/local/bin/firecracker
+
+# Default kernel installation
+firecracker_use_default_kernel: true
+firecracker_kernel_dir: /opt/firecracker/kernels
+
+# Default rootfs installation
+firecracker_use_default_rootfs: true
+firecracker_rootfs_dir: /opt/firecracker/rootfs
+firecracker_rootfs_size: 1G
+
+# Firecracker API socket location
+firecracker_socket_path: /tmp/firecracker.socket
+
+# Enable PCI bus support
+firecracker_enable_pci: true
+
+# Systemd service configuration
+firecracker_install_service: true
+firecracker_service_user: root
+firecracker_restart_policy: on-failure
+firecracker_restart_sec: 5s
+
+# Enable and start service automatically
+firecracker_service_enabled: true
+firecracker_service_state: started

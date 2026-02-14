@@ -1,0 +1,94 @@
+---
+
+- name: Set architecture fact
+  ansible.builtin.set_fact:
+    kernel_arch: "{{ ansible_facts['architecture'] }}"
+
+# Get latest Firecracker release (to derive CI_VERSION)
+- name: Get latest Firecracker release metadata
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/firecracker-microvm/firecracker/releases/latest
+    return_content: true
+  register: firecracker_release
+
+- name: Extract CI version (remove patch component)
+  ansible.builtin.set_fact:
+    latest_version: "{{ firecracker_release.json.tag_name }}"
+    ci_version: "{{ firecracker_release.json.tag_name.rsplit('.', 1)[0] }}"
+
+# Query S3 index for available kernels
+- name: Query Firecracker CI S3 bucket for kernels
+  ansible.builtin.uri:
+    url: "http://spec.ccfc.min.s3.amazonaws.com/?prefix=firecracker-ci/{{ ci_version }}/{{ kernel_arch }}/vmlinux-&list-type=2"
+    return_content: true
+  register: s3_listing
+
+
+- name: Build kernel regex pattern
+  ansible.builtin.set_fact:
+    kernel_pattern: "firecracker-ci/{{ ci_version }}/{{ kernel_arch }}/vmlinux-[0-9]+\\.[0-9]+\\.[0-9]+"
+
+- name: Extract available kernel keys
+  ansible.builtin.set_fact:
+    kernel_keys: "{{ s3_listing.content | regex_findall(kernel_pattern) }}"
+      
+- name: Fail if no kernel found
+  ansible.builtin.fail:
+    msg: "Could not find a suitable kernel for {{ ci_version }}/{{ kernel_arch }}"
+  when: kernel_keys | length == 0
+
+- name: Determine latest kernel key
+  ansible.builtin.set_fact:
+    latest_kernel_key: >-
+      {{
+        kernel_keys
+        | sort(attribute=None)
+        | community.general.version_sort
+        | last
+      }}
+
+
+
+# Download kernel
+- name: Set kernel download URL
+  ansible.builtin.set_fact:
+    kernel_download_url: "https://s3.amazonaws.com/spec.ccfc.min/{{ latest_kernel_key }}"
+
+- name: Set kernel filename
+  ansible.builtin.set_fact:
+    kernel_filename: "{{ latest_kernel_key.split('/')[-1] }}"
+
+- name: Check if kernel already exists
+  ansible.builtin.stat:
+    path: "{{ firecracker_kernel_dir }}/{{ kernel_filename }}"
+  register: kernel_exists
+  
+- name: Create kernel storage directory
+  ansible.builtin.file:
+    path: "{{ firecracker_kernel_dir }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Download Firecracker default kernel
+  ansible.builtin.get_url:
+    url: "{{ kernel_download_url }}"
+    dest: "{{ firecracker_kernel_dir }}/{{ kernel_filename }}"
+    mode: '0644'
+  when: not kernel_exists.stat.exists
+  become: true
+
+- name: Verify kernel file exists
+  ansible.builtin.stat:
+    path: "{{ firecracker_kernel_dir }}/{{ kernel_filename }}"
+  register: kernel_file_stat
+
+- name: Display downloaded kernel
+  ansible.builtin.debug:
+    msg: "Kernel: {{ kernel_filename }}"
+  when: kernel_file_stat.stat.exists
+
+- name: Fail if kernel verification failed
+  ansible.builtin.fail:
+    msg: "ERROR: Kernel {{ kernel_filename }} does not exist"
+  when: not kernel_file_stat.stat.exists
