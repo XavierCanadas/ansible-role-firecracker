@@ -8,9 +8,7 @@ galaxy_info:
   platforms:
     - name: Ubuntu
       versions:
-        - focal
-        - jammy
-        - noble
+        - "24.04"
 
   galaxy_tags:
     - firecracker
